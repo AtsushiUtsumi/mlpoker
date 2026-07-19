@@ -137,6 +137,8 @@ def main() -> None:
     parser.add_argument("--site-url", default=None, help="省略時は http://{host}")
     parser.add_argument("--model-dir", default="models")
     parser.add_argument("--table-name", default="MLボット卓")
+    parser.add_argument("--join-table-id", default=None,
+                         help="指定した場合、新規に卓を作成せず既存の卓(table_id)にボットを参加させる")
     parser.add_argument("--max-players", type=int, default=6)
     parser.add_argument("--num-bots", type=int, default=6, help="ボット同士のみで対戦する場合は max-players と同数にする")
     # 学習データ(logs/features.csv)と同じブラインド・初期チップに揃えるのが既定値
@@ -157,22 +159,32 @@ def main() -> None:
 
     policy = ModelPolicy(args.model_dir, args.samples, args.seed)
 
-    table = request(
-        "POST",
-        f"{base_url}/tables",
-        {
-            "name": args.table_name,
-            "max_players": args.max_players,
-            "level_schedule": [[args.small_blind, args.big_blind, args.ante]],
-            "require_full_table": True,
-            "initial_chips": args.initial_chips,
-            # 5人がバストするまでプレイさせるため、リバイは禁止(バストしたら脱落のまま)
-            "allow_rebuy": False,
-        },
-    )
-    table_id = table["table_id"]
-    print(f"卓を作成しました: '{args.table_name}' (table_id={table_id})")
-    print(f"  初期チップ={args.initial_chips} SB/BB/ante={args.small_blind}/{args.big_blind}/{args.ante}")
+    if args.join_table_id:
+        table = request("GET", f"{base_url}/tables/{args.join_table_id}")
+        table_id = table["table_id"]
+        buy_in = table.get("initial_chips") or args.initial_chips
+        max_players = table["max_players"]
+        print(f"既存の卓に参加します: '{table['name']}' (table_id={table_id})")
+        print(f"  既存着席人数={table['seated']}/{max_players} 買い入れ額={buy_in}")
+    else:
+        table = request(
+            "POST",
+            f"{base_url}/tables",
+            {
+                "name": args.table_name,
+                "max_players": args.max_players,
+                "level_schedule": [[args.small_blind, args.big_blind, args.ante]],
+                "require_full_table": True,
+                "initial_chips": args.initial_chips,
+                # 5人がバストするまでプレイさせるため、リバイは禁止(バストしたら脱落のまま)
+                "allow_rebuy": False,
+            },
+        )
+        table_id = table["table_id"]
+        buy_in = args.initial_chips
+        max_players = args.max_players
+        print(f"卓を作成しました: '{args.table_name}' (table_id={table_id})")
+        print(f"  初期チップ={args.initial_chips} SB/BB/ante={args.small_blind}/{args.big_blind}/{args.ante}")
 
     bots: list[BotPlayer] = []
     for i in range(1, args.num_bots + 1):
@@ -180,12 +192,12 @@ def main() -> None:
         join = request(
             "POST",
             f"{base_url}/tables/{table_id}/join",
-            {"display_name": name, "buy_in": args.initial_chips},
+            {"display_name": name, "buy_in": buy_in},
         )
         bots.append(BotPlayer(name, join["player_id"], join["token"]))
         print(f"'{name}' として着席しました (player_id={join['player_id']})")
 
-    print(f"{len(bots)}/{args.max_players}人のMLボットが着席しました。")
+    print(f"{len(bots)}/{max_players}人のMLボットが着席しました。")
     print(f"観戦する場合はブラウザで開いてください: {site_url}/poker/{table_id}")
     print("対戦を開始します... (Ctrl+Cで終了)")
 
