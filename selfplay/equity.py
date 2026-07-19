@@ -82,6 +82,49 @@ def classify(cards: list[str]) -> HandRank:
     return HandRank.HIGH_CARD
 
 
+def has_draw(cards: list[str]) -> bool:
+    """
+    5枚(ホール2枚+フロップ3枚)のカードから、フラッシュドロー・ストレートドロー
+    (オープンエンド/ガットショット問わず)のいずれかが存在するかを判定する。
+    役自体が既にワンペア以上の場合はこの判定を使う必要はない(呼び出し側で分岐する)。
+    """
+    ranks = [_RANK_VALUE[c[0]] for c in cards]
+    suits = [c[1] for c in cards]
+
+    suit_counts = Counter(suits)
+    if any(cnt == 4 for cnt in suit_counts.values()):
+        return True
+
+    unique_ranks = set(ranks)
+    if 14 in unique_ranks:
+        unique_ranks.add(1)  # ホイール方向のストレートドローも考慮
+    for low in range(1, 11):
+        window = set(range(low, low + 5))
+        if len(window & unique_ranks) == 4:
+            return True
+    return False
+
+
+def is_nuts(hole_cards: list[str], community_cards: list[str]) -> bool:
+    """
+    現時点(ターン/リバー)で、残りの見えていない全カードから作りうるどの2枚のホールカードと
+    比べても自分の役が負けないか(=ナッツかどうか)を判定する。
+    役カテゴリが低い(ツーペア未満)場合はナッツである可能性が実質無いため、
+    重い全列挙を避けて早期にFalseを返す。
+    """
+    known = hole_cards + community_cards
+    own_category = classify(known)
+    if own_category < HandRank.TWO_PAIR:
+        return False
+
+    unseen = [c for c in FULL_DECK if c not in known]
+    for other_hole in combinations(unseen, 2):
+        other_category = classify(list(other_hole) + community_cards)
+        if other_category > own_category:
+            return False
+    return True
+
+
 def estimate_hand_rank_probabilities(
     hole_cards: tuple[str, ...],
     community_cards: tuple[str, ...],
