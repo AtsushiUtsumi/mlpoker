@@ -1,1 +1,4 @@
 git+https://github.com/AtsushiUtsumi/poker-domain.git
+scikit-learn
+joblib
+pandas
