@@ -10,9 +10,18 @@ _SUIT_CHARS = {
 }
 
 
+_RANK_FROM_CHAR = {v: k for k, v in _RANK_CHARS.items()}
+_SUIT_FROM_CHAR = {v: k for k, v in _SUIT_CHARS.items()}
+
+
 def card_to_str(card: Card) -> str:
     """例: Card(ACE, SPADES) -> 'As'"""
     return _RANK_CHARS[card.rank] + _SUIT_CHARS[card.suit]
+
+
+def str_to_card(s: str) -> Card:
+    """例: 'As' -> Card(ACE, SPADES) (card_to_str の逆変換)"""
+    return Card(rank=_RANK_FROM_CHAR[s[0]], suit=_SUIT_FROM_CHAR[s[1]])
 
 
 def cards_to_list(cards) -> list[str]:

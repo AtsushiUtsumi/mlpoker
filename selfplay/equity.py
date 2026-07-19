@@ -1,8 +1,12 @@
+import math
 import random
 from collections import Counter
 from itertools import combinations
 
+from poker_domain import CommunityCards, HandEvaluator, HoleCards
 from poker_domain.value_objects.hand import HandRank
+
+from selfplay.cards import str_to_card
 
 # 学習データ用の確率分布を作る列順 (弱い役 -> 強い役)
 HAND_RANK_ORDER: tuple[HandRank, ...] = (
@@ -133,29 +137,28 @@ def estimate_hand_rank_probabilities(
 ) -> tuple[dict[HandRank, float], int]:
     """
     現時点のホールカード+コミュニティカードから、リバーまでに完成する役カテゴリの
-    確率分布を推定する。残り枚数が少ない(FLOP以降)場合は全パターンを厳密に列挙し、
-    残り5枚(PRE_FLOP)の場合のみモンテカルロ・サンプリングで近似する。
+    確率分布を推定する。FLOP以降(コミュニティカード1枚以上)は
+    poker_domain.HandEvaluator.river_probabilities に委譲して全パターンを厳密に列挙する
+    (内部で classify_category() による高速な役カテゴリ判定を行うため、大量呼び出しでも
+    性能上問題ない)。PRE_FLOP(コミュニティカード0枚、組み合わせ数が膨大)の場合のみ
+    独自にモンテカルロ・サンプリングで近似する。
     戻り値は (役カテゴリ -> 確率 の辞書, 使用したサンプル/組み合わせ数)
     """
-    known = list(hole_cards) + list(community_cards)
-    remaining_needed = 5 - len(community_cards)
+    if community_cards:
+        hole = HoleCards(str_to_card(c) for c in hole_cards)
+        community = CommunityCards(str_to_card(c) for c in community_cards)
+        probabilities = HandEvaluator.river_probabilities(hole, community)
+        cards_to_come = 5 - len(community_cards)
+        unseen_count = len(FULL_DECK) - len(hole_cards) - len(community_cards)
+        total = math.comb(unseen_count, cards_to_come)
+        return probabilities, total
+
+    known = list(hole_cards)
     unseen = [c for c in FULL_DECK if c not in known]
-
     counts: dict[HandRank, int] = {r: 0 for r in HandRank}
+    for _ in range(samples):
+        draw = rng.sample(unseen, 5)
+        counts[classify(known + draw)] += 1
 
-    if remaining_needed == 0:
-        counts[classify(known)] = 1
-        total = 1
-    elif remaining_needed <= 2:
-        combos = list(combinations(unseen, remaining_needed))
-        for combo in combos:
-            counts[classify(known + list(combo))] += 1
-        total = len(combos)
-    else:
-        for _ in range(samples):
-            draw = rng.sample(unseen, remaining_needed)
-            counts[classify(known + draw)] += 1
-        total = samples
-
-    probabilities = {r: counts[r] / total for r in HandRank}
-    return probabilities, total
+    probabilities = {r: counts[r] / samples for r in HandRank}
+    return probabilities, samples
